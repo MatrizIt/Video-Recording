@@ -17,6 +17,7 @@ void main() {
   } else if (WebRTC.platformIsAndroid) {
     //startForegroundService();
   }
+
   runApp(const MyApp());
 }
 
