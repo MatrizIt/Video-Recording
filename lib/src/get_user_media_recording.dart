@@ -52,6 +52,7 @@ class _GetUserMediaSampleMobileState extends State<GetUserMediaSampleMobile> {
     Permission.microphone.request();
     Permission.videos.request();
     initRenderers();
+    fetchAudioDevices();
     _makeCall();
     screenRecorder = EdScreenRecorder();
     _listen();
@@ -566,9 +567,10 @@ class _GetUserMediaSampleMobileState extends State<GetUserMediaSampleMobile> {
   }
 
   void _switchMicrophone(MediaDeviceInfo device) async {
-    // Implement your logic to switch the microphone device here
-    // You can use the selected device information (device) to switch the microphone
-    print('Switching microphone to device: ${device.label}');
+    if (_localStream == null) return;
+
+    await Helper.selectAudioOutput(device.deviceId);
+    setState(() {});
   }
 
   void _switchCamera(String deviceId) async {
