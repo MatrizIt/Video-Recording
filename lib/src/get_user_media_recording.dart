@@ -138,6 +138,7 @@ class _GetUserMediaSampleMobileState extends State<GetUserMediaSampleMobile> {
     try {
       var stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
       _mediaDevicesList = await navigator.mediaDevices.enumerateDevices();
+      _cameras = _mediaDevicesList;
       _localStream = stream;
       _localRenderer.srcObject = _localStream;
     } catch (e) {
@@ -408,12 +409,25 @@ class _GetUserMediaSampleMobileState extends State<GetUserMediaSampleMobile> {
                 SizedBox(
                   width: 100,
                   height: 50,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.transparent,
-                        shadowColor: Colors.transparent),
-                    onPressed: _switchCamera,
-                    child: const Icon(Icons.flip_camera_ios_rounded),
+                  child: PopupMenuButton<String>(
+                    onSelected: _switchCamera,
+                    icon: const Icon(Icons.flip_camera_ios_rounded),
+                    color: Colors.tealAccent,
+                    tooltip: "Selecionar Camera",
+                    surfaceTintColor: Colors.white,
+                    itemBuilder: (BuildContext context) {
+                      if (_cameras != null) {
+                        return _cameras!.map((device) {
+                          return PopupMenuItem<String>(
+                            value: device.deviceId,
+                            child: Text(device.label),
+                          );
+                        }).toList();
+                      } else {
+                        print("Vazio");
+                        return [];
+                      }
+                    },
                   ),
                 ),
                 SizedBox(
@@ -557,11 +571,11 @@ class _GetUserMediaSampleMobileState extends State<GetUserMediaSampleMobile> {
     print('Switching microphone to device: ${device.label}');
   }
 
-  void _switchCamera() async {
+  void _switchCamera(String deviceId) async {
     if (_localStream == null) return;
 
     await Helper.switchCamera(
-        _localStream!.getVideoTracks()[0], null, _localStream);
+        _localStream!.getVideoTracks()[0], deviceId, _localStream);
     _localRenderer.srcObject = _localStream;
     setState(() {});
   }
