@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:core';
 import 'dart:io';
+import 'package:camera/camera.dart';
 import 'package:dashboard_call_recording/constants/video_size.dart';
 import 'package:flutter_file_dialog/flutter_file_dialog.dart';
 import 'package:just_audio/just_audio.dart';
@@ -55,7 +56,7 @@ class _GetUserMediaSampleMobileState extends State<GetUserMediaSampleMobile> {
     fetchAudioDevices();
     _makeCall();
     screenRecorder = EdScreenRecorder();
-    _listen();
+    //_listen();
     navigator.mediaDevices.ondevicechange = (event) async {
       print('++++++ ondevicechange ++++++');
       _mediaDevicesList = await navigator.mediaDevices.enumerateDevices();
@@ -139,7 +140,9 @@ class _GetUserMediaSampleMobileState extends State<GetUserMediaSampleMobile> {
     try {
       var stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
       _mediaDevicesList = await navigator.mediaDevices.enumerateDevices();
+
       _cameras = _mediaDevicesList;
+      _cameras?.removeWhere((element) => element.kind != "videoinput");
       _localStream = stream;
       _localRenderer.srcObject = _localStream;
     } catch (e) {
@@ -290,6 +293,8 @@ class _GetUserMediaSampleMobileState extends State<GetUserMediaSampleMobile> {
             _speech.stop();
           } else if (status == 'notListening') {
             _speech.listen(
+              pauseFor: const Duration(seconds: 2),
+              listenFor: const Duration(seconds: 2),
               onResult: onResultSpeech,
               listenMode: stt.ListenMode.dictation,
               partialResults: true,
@@ -418,10 +423,10 @@ class _GetUserMediaSampleMobileState extends State<GetUserMediaSampleMobile> {
                     surfaceTintColor: Colors.white,
                     itemBuilder: (BuildContext context) {
                       if (_cameras != null) {
-                        return _cameras!.map((device) {
+                        return _cameras!.map((camera) {
                           return PopupMenuItem<String>(
-                            value: device.deviceId,
-                            child: Text(device.label),
+                            value: _cameras?.indexOf(camera).toString(),
+                            child: Text(camera.label),
                           );
                         }).toList();
                       } else {

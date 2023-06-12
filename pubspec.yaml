@@ -48,6 +48,7 @@ dependencies:
   image: ^3.0.17
   flutter_file_dialog: ^3.0.1
   ed_screen_recorder: ^0.0.13
+  camera: ^0.10.5+2
 
 dev_dependencies:
   flutter_test:
