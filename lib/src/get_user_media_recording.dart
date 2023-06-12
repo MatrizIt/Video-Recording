@@ -44,7 +44,7 @@ class _GetUserMediaSampleMobileState extends State<GetUserMediaSampleMobile> {
   List<MediaDeviceInfo> _audioDevices = [];
   MediaDeviceInfo? _selectedAudioDevice;
   List<dynamic>? cameras;
-  List<MediaDeviceInfo>? _cameras;
+  List<CameraDescription>? _cameras;
 
   @override
   void initState() {
@@ -139,12 +139,16 @@ class _GetUserMediaSampleMobileState extends State<GetUserMediaSampleMobile> {
 
     try {
       var stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-      _mediaDevicesList = await navigator.mediaDevices.enumerateDevices();
 
-      _cameras = _mediaDevicesList;
-      _cameras?.removeWhere((element) => element.kind != "videoinput");
-      _localStream = stream;
-      _localRenderer.srcObject = _localStream;
+      _mediaDevicesList = await navigator.mediaDevices.enumerateDevices();
+      List<MediaDeviceInfo> camerasDevices = _mediaDevicesList!
+          .where((device) => device.kind == 'videoinput')
+          .toList();
+      _cameras = await availableCameras();
+      setState(() {
+        _localStream = stream;
+        _localRenderer.srcObject = _localStream;
+      });
     } catch (e) {
       print(e.toString());
     }
@@ -171,26 +175,6 @@ class _GetUserMediaSampleMobileState extends State<GetUserMediaSampleMobile> {
   }
 
   void _startRecording() async {
-    // if (_localStream == null) throw Exception('Stream is not initialized');
-    // if (Platform.isIOS) {
-    //   print('Recording is not available on iOS');
-    //   return;
-    // }
-    // // TODO(rostopira): request write storage permission
-    // final storagePath = await getExternalStorageDirectory();
-    // if (storagePath == null) throw Exception('Can\'t find storagePath');
-
-    // final filePath = storagePath.path + '/webrtc_sample/test.mp4';
-    //
-    //
-
-    // final videoTrack = _localStream!
-    //     .getVideoTracks()
-    //     .firstWhere((track) => track.kind == 'video');
-    // await _mediaRecorder!.start(
-    //   filePath,
-    //   videoTrack: videoTrack,
-    // );
     try {
       final directory = await getApplicationDocumentsDirectory();
       screenRecorder?.startRecordScreen(
@@ -275,15 +259,6 @@ class _GetUserMediaSampleMobileState extends State<GetUserMediaSampleMobile> {
     print('track.settings ' + newTrack!.getSettings().toString());
   }
 
-  void _toggleCamera() async {
-    if (_localStream == null) throw Exception('Stream is not initialized');
-
-    final videoTrack = _localStream!
-        .getVideoTracks()
-        .firstWhere((track) => track.kind == 'video');
-    await Helper.switchCamera(videoTrack);
-  }
-
   void _listen() async {
     if (!_isListening) {
       bool available = await _speech.initialize(
@@ -354,18 +329,7 @@ class _GetUserMediaSampleMobileState extends State<GetUserMediaSampleMobile> {
         .firstWhere((track) => track.kind == 'video');
     final frame = await videoTrack.captureFrame();
     // ignore: use_build_context_synchronously
-    await showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-              content:
-                  Image.memory(frame.asUint8List(), height: 720, width: 1280),
-              actions: <Widget>[
-                TextButton(
-                  onPressed: Navigator.of(context, rootNavigator: true).pop,
-                  child: Text('OK'),
-                )
-              ],
-            ));
+
     final dir = await getTemporaryDirectory();
     var filename = '${dir.path}/image.jpeg';
     final base64 = base64Encode(frame.asUint8List());
@@ -426,7 +390,7 @@ class _GetUserMediaSampleMobileState extends State<GetUserMediaSampleMobile> {
                         return _cameras!.map((camera) {
                           return PopupMenuItem<String>(
                             value: _cameras?.indexOf(camera).toString(),
-                            child: Text(camera.label),
+                            child: Text(camera.name),
                           );
                         }).toList();
                       } else {
