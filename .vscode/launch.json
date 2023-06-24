@@ -7,7 +7,11 @@
         {
             "name": "dashboard_call_recording",
             "request": "launch",
-            "type": "dart"
+            "type": "dart",
+            "args": [
+                "-d",
+                "chrome"
+            ]
         },
         {
             "name": "dashboard_call_recording (profile mode)",

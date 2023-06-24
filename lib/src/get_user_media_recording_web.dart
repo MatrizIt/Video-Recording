@@ -2,7 +2,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:core';
+import 'dart:developer';
 import 'dart:html' as webFile;
+import 'package:dashboard_call_recording/shared/exceptions/no_device_found_exception.dart';
+import 'package:dashboard_call_recording/shared/exceptions/permission_exception.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -11,8 +14,11 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:http/http.dart' as http;
+import 'package:speech_to_text/speech_to_text.dart';
 import '../constants/video_size.dart';
-
+import '../shared/exceptions/camera_not_found_exception.dart';
+import '../shared/mixins/loader.dart';
+import '../shared/mixins/messages.dart';
 
 /*
  * getUserMedia sample
@@ -31,6 +37,8 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
   MediaStream? _localStream;
   final _localRenderer = RTCVideoRenderer();
   bool _inCalling = false;
+  bool? error;
+  String? errorMessage;
   MediaRecorder? _mediaRecorder;
   List<MediaDeviceInfo> _devices = [];
   bool get _isRec => _mediaRecorder != null;
@@ -60,19 +68,53 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
   @override
   void initState() {
     super.initState();
-    initRenderers();
-    loadDevices();
-    navigator.mediaDevices.ondevicechange = (event) {
-      loadDevices();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _init());
+    FlutterError.onError = (FlutterErrorDetails details) {
+      error = true;
+      errorMessage = "Nenhuma câmera foi encontrada";
+      setState(() {});
     };
-    _makeCall();
-    _listen();
+  }
 
-    navigator.mediaDevices.enumerateDevices().then((md) {
-      setState(() {
-        cameras = md.where((d) => d.kind == 'videoinput').toList();
+  Future<void> _init() async {
+    error = false;
+    try {
+      await _localRenderer.initialize();
+      await loadDevices();
+      navigator.mediaDevices.ondevicechange = (event) async {
+        await loadDevices();
+      };
+      await _makeCall();
+      await _initialize();
+      navigator.mediaDevices.enumerateDevices().then((md) {
+        try {
+          setState(() {
+            cameras = md.where((d) => d.kind == 'videoinput').toList();
+          });
+        } on Exception {
+          error = true;
+          errorMessage = "Nenhuma câmera foi encontrada";
+          setState(() {});
+        }
       });
-    });
+      _listen();
+    } on CameraNotFoundException catch (e, s) {
+      log("Nenhuma câmera encotrada", error: e, stackTrace: s);
+      errorMessage = "Nenhuma câmera encontrado";
+    } on PermissionException catch (e, s) {
+      log('Permissões não foram aceitas', error: e, stackTrace: s);
+      errorMessage = 'Permissões não foram aceitas';
+    } on NoDeviceFoundException catch (e, s) {
+      log('Nenhum dispositivo encontrado', error: e, stackTrace: s);
+      errorMessage = "Nenhum dispositivo encontrado";
+    } on SpeechToTextNotInitializedException {
+      errorMessage = "Speech não foi inicializado";
+    } on Exception catch (e, s) {
+      log('Erro ao iniciar chamada', error: e, stackTrace: s);
+      errorMessage = 'Erro ao iniciar chamada';
+    }
+    error = errorMessage != null;
+    setState(() {});
   }
 
   @override
@@ -82,22 +124,37 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
   }
 
   Future<void> loadDevices() async {
-    if (WebRTC.platformIsAndroid || WebRTC.platformIsIOS) {
-      //Ask for runtime permissions if necessary.
-      var status = await Permission.bluetooth.request();
-      if (status.isPermanentlyDenied) {
-        print('BLEpermdisabled');
-      }
+    try {
+      if (WebRTC.platformIsAndroid || WebRTC.platformIsIOS) {
+        //Ask for runtime permissions if necessary.
+        var status = await Permission.bluetooth.request();
+        if (status.isPermanentlyDenied) {
+          error = true;
+          errorMessage = "Permissões não foram aceitas";
+          setState(() {});
+        }
 
-      status = await Permission.bluetoothConnect.request();
-      if (status.isPermanentlyDenied) {
-        print('ConnectPermdisabled');
+        status = await Permission.bluetoothConnect.request();
+        if (status.isPermanentlyDenied) {
+          error = true;
+          errorMessage = "Permissões não foram aceitas";
+          setState(() {});
+        }
       }
+      final devices = await navigator.mediaDevices.enumerateDevices();
+      if (devices.isEmpty) {
+        error = true;
+        errorMessage = "Nenhum dispositivo encontrado";
+        setState(() {});
+      }
+      setState(() {
+        _devices = devices;
+      });
+    } catch (e) {
+      error = true;
+      errorMessage = "Nenhum dispositivo encontrado";
+      setState(() {});
     }
-    final devices = await navigator.mediaDevices.enumerateDevices();
-    setState(() {
-      _devices = devices;
-    });
   }
 
   Future<void> _selectVideoFps(String fps) async {
@@ -119,39 +176,43 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
   }
 
   Future<void> _selectVideoInput(String? deviceId) async {
-    _selectedVideoInputId = deviceId;
-    if (!_inCalling) {
-      return;
+    try {
+      _selectedVideoInputId = deviceId;
+      if (!_inCalling) {
+        return;
+      }
+      // 2) replace track.
+      // stop old track.
+      _localRenderer.srcObject = null;
+
+      _localStream?.getTracks().forEach((track) async {
+        await track.stop();
+      });
+      await _localStream?.dispose();
+
+      var newLocalStream = await navigator.mediaDevices.getUserMedia({
+        'audio': false,
+        'video': {
+          if (_selectedVideoInputId != null && kIsWeb)
+            'deviceId': _selectedVideoInputId,
+          if (_selectedVideoInputId != null && !kIsWeb)
+            'optional': [
+              {'sourceId': _selectedVideoInputId}
+            ],
+          'width': _selectedVideoSize.width,
+          'height': _selectedVideoSize.height,
+          'frameRate': _selectedVideoFPS,
+        },
+      });
+      _localStream = newLocalStream;
+      _localRenderer.srcObject = _localStream;
+      // replace track.
+      var newTrack = _localStream?.getVideoTracks().first;
+      setState(() {});
+      print('track.settings ' + newTrack!.getSettings().toString());
+    } catch (e) {
+      throw CameraNotFoundException();
     }
-    // 2) replace track.
-    // stop old track.
-    _localRenderer.srcObject = null;
-
-    _localStream?.getTracks().forEach((track) async {
-      await track.stop();
-    });
-    await _localStream?.dispose();
-
-    var newLocalStream = await navigator.mediaDevices.getUserMedia({
-      'audio': false,
-      'video': {
-        if (_selectedVideoInputId != null && kIsWeb)
-          'deviceId': _selectedVideoInputId,
-        if (_selectedVideoInputId != null && !kIsWeb)
-          'optional': [
-            {'sourceId': _selectedVideoInputId}
-          ],
-        'width': _selectedVideoSize.width,
-        'height': _selectedVideoSize.height,
-        'frameRate': _selectedVideoFPS,
-      },
-    });
-    _localStream = newLocalStream;
-    _localRenderer.srcObject = _localStream;
-    // replace track.
-    var newTrack = _localStream?.getVideoTracks().first;
-    setState(() {});
-    print('track.settings ' + newTrack!.getSettings().toString());
   }
 
   @override
@@ -164,90 +225,99 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
     navigator.mediaDevices.ondevicechange = null;
   }
 
-  void initRenderers() async {
-    await _localRenderer.initialize();
+  Future<void> _initialize() async {
+    bool available = await _speech.initialize(
+      onStatus: (status) {
+        print('Status: $status');
+      },
+      onError: (error) {
+        print('Erro: $error');
+      },
+    );
   }
 
-
-
   void _listen() async {
-    if (!_isListening) {
-      bool available = await _speech.initialize(
-        onStatus: (status) {
-          print('Status: $status');
-          if (status == 'done') {
-            _speech.stop();
-          }else if(status == 'notListening'){
-            _speech.listen(
-              onResult: onResultSpeech,
-              listenMode: stt.ListenMode.dictation,
-              partialResults: true,
-            );
-          }
-        },
-        onError: (error) {
-          print('Erro: $error');
-        },
-      );
-      if (available) {
-        _speech.listen(
-          onResult: onResultSpeech,
-          listenMode: stt.ListenMode.dictation,
-          partialResults: true,
-        );
-      }
-    } else {
-      _speech.stop();
-      setState(() {
-        _isListening = false;
-      });
+    if (_speech.isAvailable && _speech.isNotListening) {
+      _speech.statusListener = (String status) async {
+        print("O STATUS É: $status");
+        if (['notListening', 'done'].contains(status)) {
+          await _speech.stop();
+          await _startListening();
+        }
+      };
+      await _startListening();
     }
   }
 
-  void onResultSpeech (result) {
-    SpeechRecognitionWords resultados = result.alternates[result.alternates.length - 1];
-    print("Result --> ${resultados.recognizedWords} + ${resultados.confidence}");
-    if(resultados.confidence > 0.1){
-      if (result.alternates[result.alternates.length - 1].toString().contains("pause")) {
-        _hangUp();
-      } else if (result.alternates[result.alternates.length - 1].toString().contains("foto")) {
-        _captureFrame(false);
-      } else if (result.alternates[result.alternates.length - 1].toString().contains("gravar")) {
-        _startRecording();
-      } else if (result.alternates[result.alternates.length - 1].toString().contains("parar")) {
-        _stopRecording();
+  Future<void> _startListening() async {
+    await _speech.listen(
+      onResult: onResultSpeech,
+      listenMode: ListenMode.dictation,
+    );
+  }
+
+  void onResultSpeech(result) {
+    try {
+      SpeechRecognitionWords resultados =
+          result.alternates[result.alternates.length - 1];
+      print(
+          "Result --> ${resultados.recognizedWords} + ${resultados.confidence}");
+      if (resultados.confidence > 0.1) {
+        if (result.alternates[result.alternates.length - 1]
+            .toString()
+            .contains("pause")) {
+          //_hangUp();
+        } else if (result.alternates[result.alternates.length - 1]
+            .toString()
+            .contains("foto")) {
+          //_captureFrame(false);
+        } else if (result.alternates[result.alternates.length - 1]
+            .toString()
+            .contains("gravar")) {
+          //_startRecording();
+        } else if (result.alternates[result.alternates.length - 1]
+            .toString()
+            .contains("parar")) {
+          //_stopRecording();
+        }
       }
+    } catch (e) {
+      log("", error: e);
     }
   }
 
   // Platform messages are asynchronous, so we initialize in an async method.
-  void _makeCall() async {
-    final mediaConstraints = <String, dynamic>{
-      'audio': true,
-      'video': {
-        'mandatory': {
-          'minWidth':
-              '1280', // Provide your own width, height and frame rate here
-          'minHeight': '720',
-          'minFrameRate': '30',
-        },
-      }
-    };
-
+  Future<void> _makeCall() async {
     try {
+      final mediaConstraints = <String, dynamic>{
+        'audio': true,
+        'video': {
+          'mandatory': {
+            'minWidth':
+                '1280', // Provide your own width, height and frame rate here
+            'minHeight': '720',
+            'minFrameRate': '30',
+          },
+        }
+      };
       var stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
       _cameras = await Helper.cameras;
+      print("CAMERAS: ${_cameras}");
+      if (_cameras == null || (_cameras?.isEmpty ?? true)) {
+        throw CameraNotFoundException();
+      }
       _localStream = stream;
       _localRenderer.srcObject = _localStream;
       fetchAudioDevices();
-    } catch (e) {
-      print(e.toString());
-    }
-    if (!mounted) return;
 
-    setState(() {
-      _inCalling = true;
-    });
+      if (!mounted) return;
+
+      setState(() {
+        _inCalling = true;
+      });
+    } catch (e) {
+      throw CameraNotFoundException();
+    }
   }
 
   Future<void> _stop() async {
@@ -271,7 +341,6 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
   }
 
   void _startRecording() async {
-
     if (_localStream == null) throw Exception('Can\'t record without a stream');
     _mediaRecorder = MediaRecorder();
     setState(() {});
@@ -279,7 +348,6 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
   }
 
   void _stopRecording() async {
-
     final objectUrl = await _mediaRecorder?.stop();
 
     http.Response response = await http.get(Uri.parse(objectUrl));
@@ -347,7 +415,6 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
   }
 
   void _captureFrame(bool buttonClick) async {
-
     if (_localStream == null) throw Exception('Can\'t record without a stream');
     final videoTrack = _localStream!
         .getVideoTracks()
@@ -411,7 +478,7 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
             webFile.Url.revokeObjectUrl(downloadLink.href!);
           }
 
-           _sendVideoAndFoto(modifiedBase64String, ".jpeg");
+          _sendVideoAndFoto(modifiedBase64String, ".jpeg");
         });
       }
     });
@@ -419,191 +486,221 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Container(
-          margin: const EdgeInsets.fromLTRB(0.0, 0.0, 0.0, 0.0),
-          width: MediaQuery.of(context).size.width,
-          height: MediaQuery.of(context).size.height,
-          child: RTCVideoView(_localRenderer, mirror: true),
-        ),
-        Align(
-            alignment: Alignment.topCenter,
-            child: Text(
-              "Id > ${widget.id} Description ${widget.description}",
-              style: const TextStyle(
-                  color: Colors.teal, decoration: TextDecoration.none),
-            )),
-        Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Align(
-            alignment: Alignment.bottomCenter,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                const SizedBox(
-                  width: 20,
-                ),
-                _inCalling
-                    ? SizedBox(
-                        width: 100,
-                        height: 50,
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.transparent,
-                              shadowColor: Colors.transparent),
-                          onPressed: () {
-                            _captureFrame(true);
-                            setState(() {});
-                          },
-                          child: const Icon(
-                            Icons.camera_alt,
-                            color: Colors.tealAccent,
-                          ),
+    return Scaffold(
+      body: Stack(
+        children: [
+          Container(
+            margin: const EdgeInsets.fromLTRB(0.0, 0.0, 0.0, 0.0),
+            width: MediaQuery.of(context).size.width,
+            height: MediaQuery.of(context).size.height,
+            child: Visibility(
+              visible: error == false,
+              replacement: Visibility(
+                visible: error == true,
+                replacement: const Center(
+                    child: CircularProgressIndicator(
+                  color: Colors.black,
+                )),
+                child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.error,
+                        color: Colors.red,
+                        size: 40,
+                      ),
+                      Text(
+                        errorMessage ?? "Erro não informado",
+                        style: const TextStyle(
+                          fontSize: 26,
                         ),
-                      )
-                    : const Text(""),
-                /*_inCalling
-                    ? SizedBox(
-                        width: 200,
-                        height: 50,
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.cyan,
-                              textStyle: const TextStyle(
-                                color: Colors.white,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(5))),
-                          onPressed: _captureFrame,
-                          child: const Text("Capturar foto",
-                              style: TextStyle(color: Colors.white)),
-                        ),
-                      )
-                    : const Text(""),*/
-                const SizedBox(
-                  width: 20,
-                ),
-                _inCalling
-                    ? SizedBox(
-                        width: 100,
-                        height: 50,
-                        child: ElevatedButton(
+                      ),
+                      TextButton(
+                          onPressed: _init,
+                          child: const Text("Tentar novamente"))
+                    ]),
+              ),
+              child: RTCVideoView(_localRenderer, mirror: true),
+            ),
+          ),
+          Align(
+              alignment: Alignment.topCenter,
+              child: Text(
+                "Id > ${widget.id} Description ${widget.description}",
+                style: const TextStyle(
+                    color: Colors.teal, decoration: TextDecoration.none),
+              )),
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const SizedBox(
+                    width: 20,
+                  ),
+                  _inCalling
+                      ? SizedBox(
+                          width: 100,
+                          height: 50,
+                          child: ElevatedButton(
                             style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.transparent,
                                 shadowColor: Colors.transparent),
                             onPressed: () {
-                              _isRec ? _stopRecording : _startRecording;
+                              _captureFrame(true);
+                              setState(() {});
                             },
-                            child: _isRec
-                                ? const Icon(Icons.stop, color: Colors.red)
-                                : const Icon(Icons.fiber_manual_record,
-                                    color: Colors.red)),
-                      )
-                    : const Text(""),
-                SizedBox(
-                  width: 100,
-                  height: 50,
-                  child: PopupMenuButton<String>(
-                    onSelected: _switchCamera,
-                    icon: const Icon(Icons.flip_camera_ios_rounded),
-                    color: Colors.tealAccent,
-                    tooltip: "Selecionar Camera",
-                    surfaceTintColor: Colors.white,
-                    itemBuilder: (BuildContext context) {
-                      if (_cameras != null) {
-                        return _cameras!.map((device) {
-                          return PopupMenuItem<String>(
-                            value: device.deviceId,
+                            child: const Icon(
+                              Icons.camera_alt,
+                              color: Colors.tealAccent,
+                            ),
+                          ),
+                        )
+                      : const Text(""),
+                  /*_inCalling
+                      ? SizedBox(
+                          width: 200,
+                          height: 50,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.cyan,
+                                textStyle: const TextStyle(
+                                  color: Colors.white,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(5))),
+                            onPressed: _captureFrame,
+                            child: const Text("Capturar foto",
+                                style: TextStyle(color: Colors.white)),
+                          ),
+                        )
+                      : const Text(""),*/
+                  const SizedBox(
+                    width: 20,
+                  ),
+                  _inCalling
+                      ? SizedBox(
+                          width: 100,
+                          height: 50,
+                          child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.transparent,
+                                  shadowColor: Colors.transparent),
+                              onPressed: () {
+                                _isRec ? _stopRecording : _startRecording;
+                              },
+                              child: _isRec
+                                  ? const Icon(Icons.stop, color: Colors.red)
+                                  : const Icon(Icons.fiber_manual_record,
+                                      color: Colors.red)),
+                        )
+                      : const Text(""),
+                  SizedBox(
+                    width: 100,
+                    height: 50,
+                    child: PopupMenuButton<String>(
+                      onSelected: _switchCamera,
+                      icon: const Icon(Icons.flip_camera_ios_rounded),
+                      color: Colors.tealAccent,
+                      tooltip: "Selecionar Camera",
+                      surfaceTintColor: Colors.white,
+                      itemBuilder: (BuildContext context) {
+                        if (_cameras != null) {
+                          return _cameras!.map((device) {
+                            return PopupMenuItem<String>(
+                              value: device.deviceId,
+                              child: Text(device.label),
+                            );
+                          }).toList();
+                        } else {
+                          return [];
+                        }
+                      },
+                    ),
+                  ),
+                  SizedBox(
+                    width: 100,
+                    height: 50,
+                    child: PopupMenuButton<MediaDeviceInfo>(
+                      onSelected: (device) {
+                        setState(() {
+                          _selectedAudioDevice = device;
+                        });
+                        _switchMicrophone(device);
+                      },
+                      tooltip: "Selecionar Microfone",
+                      icon: const Icon(Icons.mic_rounded),
+                      color: Colors.tealAccent,
+                      itemBuilder: (BuildContext context) {
+                        return _audioDevices.map((device) {
+                          return PopupMenuItem<MediaDeviceInfo>(
+                            value: device,
                             child: Text(device.label),
                           );
                         }).toList();
-                      } else {
-                        return [];
-                      }
-                    },
+                      },
+                    ),
                   ),
-                ),
-                SizedBox(
-                  width: 100,
-                  height: 50,
-                  child: PopupMenuButton<MediaDeviceInfo>(
-                    onSelected: (device) {
-                      setState(() {
-                        _selectedAudioDevice = device;
-                      });
-                      _switchMicrophone(device);
-                    },
-                    tooltip: "Selecionar Microfone",
-                    icon: const Icon(Icons.mic_rounded),
-                    color: Colors.tealAccent,
-                    itemBuilder: (BuildContext context) {
-                      return _audioDevices.map((device) {
-                        return PopupMenuItem<MediaDeviceInfo>(
-                          value: device,
-                          child: Text(device.label),
-                        );
-                      }).toList();
-                    },
+                  SizedBox(
+                    width: 100,
+                    height: 50,
+                    child: PopupMenuButton<String>(
+                      onSelected: _selectVideoFps,
+                      icon: const Icon(Icons.high_quality_outlined),
+                      color: Colors.tealAccent,
+                      tooltip: "Qualidade do video",
+                      itemBuilder: (BuildContext context) {
+                        return [
+                          PopupMenuItem<String>(
+                            value: _selectedVideoFPS,
+                            child: Text('Select FPS ($_selectedVideoFPS)'),
+                          ),
+                          const PopupMenuDivider(),
+                          ...['8', '15', '30', '60']
+                              .map((fps) => PopupMenuItem<String>(
+                                    value: fps,
+                                    child: Text(fps),
+                                  ))
+                              .toList()
+                        ];
+                      },
+                    ),
                   ),
-                ),
-                SizedBox(
-                  width: 100,
-                  height: 50,
-                  child: PopupMenuButton<String>(
-                    onSelected: _selectVideoFps,
-                    icon: const Icon(Icons.high_quality_outlined),
-                    color: Colors.tealAccent,
-                    tooltip: "Qualidade do video",
-                    itemBuilder: (BuildContext context) {
-                      return [
-                        PopupMenuItem<String>(
-                          value: _selectedVideoFPS,
-                          child: Text('Select FPS ($_selectedVideoFPS)'),
-                        ),
-                        const PopupMenuDivider(),
-                        ...['8', '15', '30', '60']
-                            .map((fps) => PopupMenuItem<String>(
-                                  value: fps,
-                                  child: Text(fps),
-                                ))
-                            .toList()
-                      ];
-                    },
+                  SizedBox(
+                    width: 100,
+                    height: 50,
+                    child: PopupMenuButton<String>(
+                      onSelected: _selectVideoSize,
+                      icon: const Icon(Icons.screenshot_monitor),
+                      color: Colors.tealAccent,
+                      tooltip: "Resolução da camera",
+                      itemBuilder: (BuildContext context) {
+                        return [
+                          PopupMenuItem<String>(
+                            value: _selectedVideoSize.toString(),
+                            child:
+                                Text('Select Video Size ($_selectedVideoSize)'),
+                          ),
+                          const PopupMenuDivider(),
+                          ...['320x240', '640x480', '1280x720', '1920x1080']
+                              .map((fps) => PopupMenuItem<String>(
+                                    value: fps,
+                                    child: Text(fps),
+                                  ))
+                              .toList()
+                        ];
+                      },
+                    ),
                   ),
-                ),
-                SizedBox(
-                  width: 100,
-                  height: 50,
-                  child: PopupMenuButton<String>(
-                    onSelected: _selectVideoSize,
-                    icon: const Icon(Icons.screenshot_monitor),
-                    color: Colors.tealAccent,
-                    tooltip: "Resolução da camera",
-                    itemBuilder: (BuildContext context) {
-                      return [
-                        PopupMenuItem<String>(
-                          value: _selectedVideoSize.toString(),
-                          child:
-                              Text('Select Video Size ($_selectedVideoSize)'),
-                        ),
-                        const PopupMenuDivider(),
-                        ...['320x240', '640x480', '1280x720', '1920x1080']
-                            .map((fps) => PopupMenuItem<String>(
-                                  value: fps,
-                                  child: Text(fps),
-                                ))
-                            .toList()
-                      ];
-                    },
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        )
-      ],
+          )
+        ],
+      ),
     );
   }
 
@@ -636,7 +733,7 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
 
       await stream.dispose();
     } catch (e) {
-      print('Error fetching audio devices: $e');
+      throw CameraNotFoundException();
     }
   }
 

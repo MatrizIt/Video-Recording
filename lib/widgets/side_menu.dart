@@ -52,7 +52,7 @@ class _SideMenuPageState extends State<SideMenuPage> {
             ),
             title: const Column(
               children: [
-                 Divider(
+                Divider(
                   indent: 8.0,
                   endIndent: 8.0,
                 ),
@@ -113,10 +113,9 @@ class _SideMenuPageState extends State<SideMenuPage> {
                 Container(
                   color: Colors.white,
                   child: Center(
-                    child: isMobile ? GetUserMediaSampleMobile() : Container()
-                  ),
+                      child:
+                          isMobile ? GetUserMediaSampleMobile() : Container()),
                 ),
-
               ],
             ),
           ),

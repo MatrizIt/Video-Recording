@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:core';
+import 'dart:developer';
 import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:dashboard_call_recording/constants/video_size.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_file_dialog/flutter_file_dialog.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -14,6 +16,9 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:http/http.dart' as http;
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:ed_screen_recorder/ed_screen_recorder.dart';
+import 'package:usb_serial/usb_serial.dart';
+
+import '../models/camera_information.dart';
 
 /*
  * getUserMedia sample
@@ -44,7 +49,8 @@ class _GetUserMediaSampleMobileState extends State<GetUserMediaSampleMobile> {
   List<MediaDeviceInfo> _audioDevices = [];
   MediaDeviceInfo? _selectedAudioDevice;
   List<dynamic>? cameras;
-  List<CameraDescription>? _cameras;
+  List<CameraInformation>? _cameras;
+  static const platform = const MethodChannel('example.com/cameras');
 
   @override
   void initState() {
@@ -56,7 +62,7 @@ class _GetUserMediaSampleMobileState extends State<GetUserMediaSampleMobile> {
     fetchAudioDevices();
     _makeCall();
     screenRecorder = EdScreenRecorder();
-    //_listen();
+    _listen();
     navigator.mediaDevices.ondevicechange = (event) async {
       print('++++++ ondevicechange ++++++');
       _mediaDevicesList = await navigator.mediaDevices.enumerateDevices();
@@ -144,7 +150,11 @@ class _GetUserMediaSampleMobileState extends State<GetUserMediaSampleMobile> {
       List<MediaDeviceInfo> camerasDevices = _mediaDevicesList!
           .where((device) => device.kind == 'videoinput')
           .toList();
-      _cameras = await availableCameras();
+      var cameras =
+          (await (await platform.invokeMethod('getCamerasInfo'))) as List;
+      _cameras = cameras
+          .map<CameraInformation>((camera) => CameraInformation.fromMap(camera))
+          .toList();
       setState(() {
         _localStream = stream;
         _localRenderer.srcObject = _localStream;
@@ -390,7 +400,7 @@ class _GetUserMediaSampleMobileState extends State<GetUserMediaSampleMobile> {
                         return _cameras!.map((camera) {
                           return PopupMenuItem<String>(
                             value: _cameras?.indexOf(camera).toString(),
-                            child: Text(camera.name),
+                            child: Text(camera.cameraName),
                           );
                         }).toList();
                       } else {

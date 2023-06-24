@@ -1,11 +1,13 @@
+import 'dart:html';
+
 import 'package:dashboard_call_recording/src/get_user_media_recording.dart';
+import 'package:dashboard_call_recording/src/get_user_media_recording_web.dart';
 //import 'package:dashboard_call_recording/src/get_user_media_recording_web.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_background/flutter_background.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'constants/size_constants.dart';
-
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -35,13 +37,11 @@ class MyApp extends StatelessWidget {
 
   // This widget is the root of your application.
 
-  
   @override
   Widget build(BuildContext context) {
-    /*var url = window.location.toString().split("Description=");
-    var id = url[0].split("id=")[1];
-    var description = url[1];*/
-
+    // var url = window.location.toString().split("Description=");
+    // var id = url[0].split("id=")[1];
+    // var description = url[1];
 
     final isMobile =
         MediaQuery.of(context).size.width < SizeConstants.wideScreenBreakpoint;
@@ -52,8 +52,7 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: GetUserMediaSampleMobile(),
+      home: GetUserMediaSample('', ''),
     );
   }
 }
-

@@ -49,6 +49,9 @@ dependencies:
   flutter_file_dialog: ^3.0.1
   ed_screen_recorder: ^0.0.13
   camera: ^0.10.5+2
+  usb_serial: ^0.4.0
+  camera_camera: ^3.0.0-dev
+  loading_animation_widget: ^1.2.0+4
 
 dev_dependencies:
   flutter_test:
