@@ -84,7 +84,7 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
       navigator.mediaDevices.ondevicechange = (event) async {
         await loadDevices();
       };
-      //await _makeCall();
+      await _makeCall();
       await _initialize();
       navigator.mediaDevices.enumerateDevices().then((md) {
         try {
