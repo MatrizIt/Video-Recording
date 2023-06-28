@@ -85,7 +85,7 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
         await loadDevices();
       };
       await _makeCall();
-      await _initialize();
+       _listen();
       navigator.mediaDevices.enumerateDevices().then((md) {
         try {
           setState(() {
@@ -97,7 +97,7 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
           setState(() {});
         }
       });
-      _listen();
+
     } on CameraNotFoundException catch (e, s) {
       log("Nenhuma câmera encotrada", error: e, stackTrace: s);
       errorMessage = "Nenhuma câmera encontrado";
@@ -225,37 +225,35 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
     navigator.mediaDevices.ondevicechange = null;
   }
 
-  Future<void> _initialize() async {
-    bool available = await _speech.initialize(
-      onStatus: (status) {
-        print('Status: $status');
-      },
-      onError: (error) {
-        print('Erro: $error');
-      },
-    );
-  }
 
   void _listen() async {
-    if (_speech.isAvailable && _speech.isNotListening) {
-      _speech.statusListener = (String status) async {
-        print("O STATUS É: $status");
-        if (['notListening', 'done'].contains(status)) {
-          try {
-            await _speech.stop();
-            await _startListening();
-          } catch (e) {}
-        }
-      };
-      await _startListening();
-    }
-  }
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (status) {
+          if (status == 'listening') {
+            setState(() {
+              _isListening = true;
+            });
+          } else if (status == 'notListening') {
+            setState(() {
+              _isListening = false;
+            });
+          }
+        },
+        onError: (error) {
+          print('Erro ao inicializar o reconhecimento de voz: $error');
+        },
+      );
 
-  Future<void> _startListening() async {
-    await _speech.listen(
-      onResult: onResultSpeech,
-      listenMode: ListenMode.dictation,
-    );
+      if (available) {
+        setState(() {});
+        _speech.listen(
+          onResult: onResultSpeech,
+        );
+      }
+    } else {
+      _speech.stop();
+    }
   }
 
   void onResultSpeech(result) {
@@ -264,23 +262,23 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
           result.alternates[result.alternates.length - 1];
       print(
           "Result --> ${resultados.recognizedWords} + ${resultados.confidence}");
-      if (resultados.confidence > 0.1) {
+      if (resultados.confidence < 0.1) {
         if (result.alternates[result.alternates.length - 1]
-            .toString()
+            .toString().toLowerCase()
             .contains("pause")) {
-          //_hangUp();
+          _hangUp();
         } else if (result.alternates[result.alternates.length - 1]
-            .toString()
+            .toString().toLowerCase()
             .contains("foto")) {
-          //_captureFrame(false);
+          _captureFrame(false);
         } else if (result.alternates[result.alternates.length - 1]
-            .toString()
+            .toString().toLowerCase()
             .contains("gravar")) {
-          //_startRecording();
+          _startRecording();
         } else if (result.alternates[result.alternates.length - 1]
-            .toString()
+            .toString().toLowerCase()
             .contains("parar")) {
-          //_stopRecording();
+          _stopRecording();
         }
       }
     } catch (e) {
@@ -480,7 +478,7 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
             webFile.Url.revokeObjectUrl(downloadLink.href!);
           }
 
-          _sendVideoAndFoto(modifiedBase64String, ".jpeg");
+          //_sendVideoAndFoto(modifiedBase64String, ".jpeg");
         });
       }
     });
