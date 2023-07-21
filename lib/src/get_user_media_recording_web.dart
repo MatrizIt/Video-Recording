@@ -6,6 +6,7 @@ import 'dart:developer';
 import 'dart:html' as webFile;
 import 'package:dashboard_call_recording/shared/exceptions/no_device_found_exception.dart';
 import 'package:dashboard_call_recording/shared/exceptions/permission_exception.dart';
+import 'package:dashboard_call_recording/socket_io.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -15,10 +16,10 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:http/http.dart' as http;
 import 'package:speech_to_text/speech_to_text.dart';
+import 'package:top_snackbar_flutter/custom_snack_bar.dart';
+import 'package:top_snackbar_flutter/top_snack_bar.dart';
 import '../constants/video_size.dart';
 import '../shared/exceptions/camera_not_found_exception.dart';
-import '../shared/mixins/loader.dart';
-import '../shared/mixins/messages.dart';
 
 /*
  * getUserMedia sample
@@ -85,7 +86,7 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
         await loadDevices();
       };
       await _makeCall();
-       _listen();
+      _listen();
       navigator.mediaDevices.enumerateDevices().then((md) {
         try {
           setState(() {
@@ -97,7 +98,6 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
           setState(() {});
         }
       });
-
     } on CameraNotFoundException catch (e, s) {
       log("Nenhuma câmera encotrada", error: e, stackTrace: s);
       errorMessage = "Nenhuma câmera encontrado";
@@ -211,6 +211,13 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
       setState(() {});
       print('track.settings ' + newTrack!.getSettings().toString());
     } catch (e) {
+      showTopSnackBar(
+        Overlay.of(context),
+        const CustomSnackBar.error(
+          message:
+              "Tivemos alguns problemas ao carregar a camera, tente novamente !",
+        ),
+      );
       throw CameraNotFoundException();
     }
   }
@@ -224,7 +231,6 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
     _localRenderer.dispose();
     navigator.mediaDevices.ondevicechange = null;
   }
-
 
   void _listen() async {
     if (!_isListening) {
@@ -241,7 +247,12 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
           }
         },
         onError: (error) {
-          print('Erro ao inicializar o reconhecimento de voz: $error');
+          showTopSnackBar(
+            Overlay.of(context),
+            const CustomSnackBar.error(
+              message: "Erro ao inicializar o reconhecimento de voz!",
+            ),
+          );
         },
       );
 
@@ -264,19 +275,23 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
           "Result --> ${resultados.recognizedWords} + ${resultados.confidence}");
       if (resultados.confidence < 0.1) {
         if (result.alternates[result.alternates.length - 1]
-            .toString().toLowerCase()
+            .toString()
+            .toLowerCase()
             .contains("pause")) {
           _hangUp();
         } else if (result.alternates[result.alternates.length - 1]
-            .toString().toLowerCase()
+            .toString()
+            .toLowerCase()
             .contains("foto")) {
           _captureFrame(false);
         } else if (result.alternates[result.alternates.length - 1]
-            .toString().toLowerCase()
+            .toString()
+            .toLowerCase()
             .contains("gravar")) {
           _startRecording();
         } else if (result.alternates[result.alternates.length - 1]
-            .toString().toLowerCase()
+            .toString()
+            .toLowerCase()
             .contains("parar")) {
           _stopRecording();
         }
@@ -316,6 +331,13 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
         _inCalling = true;
       });
     } catch (e) {
+      showTopSnackBar(
+        Overlay.of(context),
+        const CustomSnackBar.error(
+          message:
+              "Tivemos alguns problemas ao carregar a camera, tente novamente !",
+        ),
+      );
       throw CameraNotFoundException();
     }
   }
@@ -410,6 +432,13 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
 
       player.stop();
     } catch (e) {
+      showTopSnackBar(
+        Overlay.of(context),
+        const CustomSnackBar.error(
+          message:
+              "Tivemos alguns problemas ao enviar a foto, tente novamente !",
+        ),
+      );
       print("Error -> $e");
     }
   }
@@ -555,6 +584,25 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
                             },
                             child: const Icon(
                               Icons.camera_alt,
+                              color: Colors.tealAccent,
+                            ),
+                          ),
+                        )
+                      : const Text(""),
+                  _inCalling
+                      ? SizedBox(
+                          width: 100,
+                          height: 50,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.transparent,
+                                shadowColor: Colors.transparent),
+                            onPressed: () {
+                              connectAndEmit('trocar_camera:0');
+                              setState(() {});
+                            },
+                            child: const Icon(
+                              Icons.camera_front,
                               color: Colors.tealAccent,
                             ),
                           ),

@@ -52,6 +52,8 @@ dependencies:
   usb_serial: ^0.4.0
   camera_camera: ^3.0.0-dev
   loading_animation_widget: ^1.2.0+4
+  top_snackbar_flutter: ^3.1.0
+  socket_io_client: ^2.0.2
 
 dev_dependencies:
   flutter_test:

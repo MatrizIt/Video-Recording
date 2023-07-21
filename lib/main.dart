@@ -39,9 +39,9 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-     var url = window.location.toString().split("Description=");
-     var id = url[0].split("id=")[1];
-     var description = url[1];
+    /*var url = window.location.toString().split("Description=");
+    var id = url[0].split("id=")[1];
+    var description = url[1];*/
 
     final isMobile =
         MediaQuery.of(context).size.width < SizeConstants.wideScreenBreakpoint;
@@ -52,7 +52,7 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: GetUserMediaSample(id, description),
+      home: GetUserMediaSample("id", "description"),
     );
   }
 }

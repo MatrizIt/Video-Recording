@@ -64,7 +64,6 @@ class _GetUserMediaSampleMobileState extends State<GetUserMediaSampleMobile> {
     screenRecorder = EdScreenRecorder();
     _listen();
     navigator.mediaDevices.ondevicechange = (event) async {
-      print('++++++ ondevicechange ++++++');
       _mediaDevicesList = await navigator.mediaDevices.enumerateDevices();
     };
   }
